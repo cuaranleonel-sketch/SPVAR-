@@ -8,7 +8,12 @@ import warnings
 import traceback
 
 warnings.filterwarnings("ignore")
-
+import matplotlib as mpl
+cmap = mpl.colormaps.get_cmap(cmap_name)
+try:
+    cmap = plt.colormaps[cmap_name]          # matplotlib >= 3.7
+except Exception:
+    cmap = plt.cm.get_cmap(cmap_name)        # versiones antiguas
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -313,11 +318,49 @@ def folium_html(m, height=560):
 
 
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
+    import matplotlib as mpl
+
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
     m = folium.Map(location=[4.5, -74.0], zoom_start=5.7, tiles="CartoDB dark_matter")
     vmin, vmax = g[col_name].min(), g[col_name].max()
-    cmap = plt.cm.get_cmap(cmap_name)
+
+    try:
+        cmap = mpl.colormaps[cmap_name]
+    except Exception:
+        cmap = mpl.cm.get_cmap(cmap_name)
+
+    def style(feat):
+        val = feat["properties"].get(col_name)
+        if val is None or (isinstance(val, float) and np.isnan(val)):
+            c = "#333333"
+        else:
+            norm = 0.5 if vmax == vmin else (float(val) - vmin) / (vmax - vmin + 1e-12)
+            c = mcolors.to_hex(cmap(np.clip(norm, 0, 1)))
+        return {
+            "fillColor": c,
+            "color": "#22d3ee",
+            "weight": 1.4,
+            "fillOpacity": 0.88,
+        }
+
+    folium.GeoJson(
+        g.__geo_interface__,
+        style_function=style,
+        tooltip=GeoJsonTooltip(
+            fields=["departamento", col_name], aliases=["Departamento", alias]
+        ),
+    ).add_to(m)
+
+    if center_dept and center_dept in list(g["departamento"]):
+        cent = g.loc[g["departamento"] == center_dept, "geometry"].centroid.iloc[0]
+        folium.Marker(
+            [cent.y, cent.x],
+            popup=f"Shock: {center_dept}",
+            icon=folium.Icon(color="red", icon="info-sign"),
+        ).add_to(m)
+
+    return folium_html(m)
 
     def style(feat):
         val = feat["properties"].get(col_name)
