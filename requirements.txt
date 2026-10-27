@@ -10,10 +10,6 @@ matplotlib
 plotly
 gdown
 libpysal
-esda
-spreg
 scikit-learn
 seaborn
-earthengine-api
-google-auth
 openpyxl
