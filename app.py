@@ -8,8 +8,6 @@ import warnings
 import traceback
 
 warnings.filterwarnings("ignore")
-import matplotlib as mpl
-cmap = mpl.colormaps.get_cmap(cmap_name)
 try:
     cmap = plt.colormaps[cmap_name]          # matplotlib >= 3.7
 except Exception:
