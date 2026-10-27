@@ -1,0 +1,36 @@
+
+- **Commit changes**.
+
+---
+
+#### Archivo 3: `app.py`
+
+- Nombre: `app.py`
+- Pega **todo** el código Streamlit que te pasé en el mensaje anterior (el bloque completo de Streamlit).
+- **Commit changes**.
+
+> Si el código es muy largo y GitHub se pone lento, usa **Add file → Upload files** y sube `app.py` desde tu computador (cópialo antes a un archivo de texto con ese nombre).
+
+---
+
+### Paso 2: Publicar en Streamlit Community Cloud
+
+1. Entra a: [https://share.streamlit.io](https://share.streamlit.io)
+2. Inicia sesión con la **misma cuenta de GitHub**.
+3. **New app** / **Create app**.
+4. Completa:
+   - **Repository:** `cuaranleonel-sketch/SPVAR-`
+   - **Branch:** `main` (o `master`)
+   - **Main file path:** `app.py`
+5. Clic en **Deploy**.
+
+Espera 2–5 minutos mientras instala dependencias.
+
+---
+
+### Paso 3: Enlace para el profesor
+
+Cuando termine, Streamlit te da un enlace del tipo:
+
+```text
+https://spvar-xxxxx.streamlit.app
