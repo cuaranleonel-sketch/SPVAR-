@@ -8,10 +8,7 @@ import warnings
 import traceback
 
 warnings.filterwarnings("ignore")
-try:
-    cmap = plt.colormaps[cmap_name]          # matplotlib >= 3.7
-except Exception:
-    cmap = plt.cm.get_cmap(cmap_name)        # versiones antiguas
+      # versiones antiguas
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -30,6 +27,9 @@ try:
     import gdown
 except ImportError:
     gdown = None
+
+import matplotlib as mpl
+cmap = mpl.colormaps.get_cmap(cmap_name)
 
 # ---------- Config página ----------
 st.set_page_config(
