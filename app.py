@@ -1,5 +1,5 @@
 # =============================================================================
-# LuzEspacial – SpVAR Colombia (Streamlit Cloud) – versión final
+# LuzEspacial – SpVAR Colombia (Streamlit) 
 # =============================================================================
 import os
 import tempfile
@@ -36,6 +36,7 @@ st.set_page_config(
 ITAED_FILE_ID = "1SYu1r-3MbUvmQ5WzoH_uKs5pCAzcEr0P"
 ITAED_PATH = "Resultados_ITAED.xlsx"
 VIIRS_CSV = "viirs_departamental.csv"
+LUCES_PNG = "luces_colombia_2021.png"
 LAGS = 2
 
 # ---------- Estilos ----------
@@ -268,7 +269,7 @@ def spirf(sp, shock="nl_growth", idx=0, H=12):
     return irf
 
 
-# ---------- Mapas (sin matplotlib.cmap) ----------
+# ---------- Mapas ----------
 def folium_html(m, height=560):
     path = tempfile.mktemp(suffix=".html")
     m.save(path)
@@ -277,6 +278,7 @@ def folium_html(m, height=560):
 
 
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
+    """Sin matplotlib.cmap – paletas fijas."""
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
     m = folium.Map(location=[4.5, -74.0], zoom_start=5.7, tiles="CartoDB dark_matter")
@@ -442,12 +444,29 @@ impact = {model.depts[i]: float(irf["eco_ind"][:, i].sum()) for i in range(model
 growth = df.groupby("departamento")["nl_growth"].mean().to_dict()
 rad = df.groupby("departamento")["nl_radiance"].mean().to_dict()
 
-tab1, tab2, tab3, tab4 = st.tabs([
-    "1. SpIRF",
-    "2. Impacto económico",
-    "3. Crecimiento luces",
-    "4. Radiancia (calor)",
+tab0, tab1, tab2, tab3, tab4 = st.tabs([
+    "1. Luces satelitales VIIRS",
+    "2. SpIRF",
+    "3. Impacto económico",
+    "4. Crecimiento luces",
+    "5. Radiancia (calor)",
 ])
+
+# Pestaña 1: imagen satelital (PNG pregenerado)
+with tab0:
+    st.subheader("Luces nocturnas satelitales (VIIRS 2021)")
+    if os.path.exists(LUCES_PNG):
+        st.image(LUCES_PNG, use_container_width=True)
+        st.caption("Composite anual VIIRS 2021 · NOAA / Earth Engine (imagen pregenerada)")
+    else:
+        st.warning(
+            f"No se encontró **{LUCES_PNG}** en el repositorio. "
+            "Genera la imagen en Colab y súbela a la raíz del repo."
+        )
+        st.info(
+            "Mientras tanto, las pestañas de **Crecimiento luces** y **Radiancia** "
+            "sí usan datos VIIRS reales del CSV."
+        )
 
 with tab1:
     c1, c2 = st.columns([1, 1])
