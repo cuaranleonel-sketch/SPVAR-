@@ -2,19 +2,17 @@ streamlit>=1.28.0
 numpy
 pandas
 geopandas
-libpysal
-esda
-spreg
+shapely
+pyproj
 folium
 statsmodels
 matplotlib
-seaborn
-scikit-learn
-shapely
-pyproj
-rtree
 plotly
-earthengine-api
 gdown
+libpysal
+esda
+spreg
+scikit-learn
+seaborn
+earthengine-api
 google-auth
-Commit changes
