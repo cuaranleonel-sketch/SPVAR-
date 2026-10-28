@@ -452,9 +452,10 @@ def run_pipeline():
     return model, gdf, df
 
 
-from google import genai  # Asegúrate de tener este import arriba
+from google import genai
+from google.genai import types
 
-# ---------- Asistente Gemini (Librería oficial con modelo estable) ----------
+# ---------- Asistente Gemini (Forzando servidor AI Studio) ----------
 def render_assistant(model, df, shock):
     st.subheader("🤖 Asistente LuzEspacial")
     st.caption("Pregunta sobre el modelo, los resultados o la interpretación de los mapas.")
@@ -468,33 +469,27 @@ def render_assistant(model, df, shock):
         api_key = os.environ.get("GEMINI_API_KEY")
 
     if not api_key:
-        st.info(
-            "🔑 Configura `GEMINI_API_KEY` en **Settings → Secrets** de Streamlit Cloud "
-            "para activar el asistente."
-        )
+        st.info("🔑 Configura `GEMINI_API_KEY` en **Settings → Secrets** de Streamlit Cloud.")
         return
 
-    # Inicializar el cliente oficial
+    # 🎯 FORZAMOS el servidor correcto de AI Studio (gratuito)
     try:
-        client = genai.Client(api_key=api_key)
-    except Exception:
+        client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                base_url='https://generativelanguage.googleapis.com'
+            )
+        )
+    except Exception as e:
         st.error("Hubo un problema al inicializar la IA. Revisa tu API Key.")
         return
 
     depts = model.depts
     system_prompt = f"""Eres un asistente experto en econometría espacial que ayuda a interpretar
 los resultados de la aplicación LuzEspacial (SpVAR aplicado a Colombia).
-
-Contexto del modelo actual:
-- Spatial VAR (SpVAR) con {model.N} departamentos de Colombia.
-- Variables endógenas: nl_growth (crecimiento de luces VIIRS) y eco_ind (DANE ITAED).
-- Rezagos: {model.lags} trimestres.
-- Raíz característica máxima: {model.maxeig:.3f} (si es >= 1, el VAR no es estacionario).
-- Período de datos: {df['fecha'].min():%Y-%m} a {df['fecha'].max():%Y-%m}.
-- Shock actual: {shock}.
-- Departamentos: {', '.join(depts[:12])}{'...' if len(depts) > 12 else ''}.
-
-Responde en español, claro y conciso. Si te falta información, dilo honestamente."""
+Contexto: SpVAR con {model.N} departamentos. Variables: nl_growth, eco_ind. Rezagos: {model.lags}.
+Raíz característica máxima: {model.maxeig:.3f}. Shock actual: {shock}.
+Responde en español, claro y conciso."""
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -512,9 +507,9 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
             placeholder = st.empty()
             full_response = ""
             try:
-                # Usamos gemini-1.5-flash que es estable y compatible con claves AQ.
+                # Usamos un modelo que SÍ está en el tier gratuito según la documentación
                 response = client.models.generate_content_stream(
-                    model="gemini-1.5-flash",
+                    model="gemini-3.5-flash-lite",  # Modelo gratuito y estable
                     contents=f"{system_prompt}\n\nPregunta del usuario: {prompt}",
                 )
                 for chunk in response:
@@ -523,12 +518,11 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
                         placeholder.markdown(full_response + "▌")
                 placeholder.markdown(full_response)
             except Exception as e:
-                # Si falla, mostramos un mensaje amigable (sin traceback técnico)
-                full_response = "⚠️ El asistente no pudo responder. Es posible que la clave AQ. esté teniendo problemas de enrutamiento con Google. Intenta de nuevo en unos minutos."
-                placeholder.warning(full_response)
+                # Mostramos el error real para poder diagnosticar
+                placeholder.error(f"Error: {str(e)}")
 
         st.session_state.chat_history.append({"role": "assistant", "content": full_response})
-# ---------- UI principal ----------
+        # ---------- UI principal ----------
 st.markdown(
     """
 <div class="lz-header">
