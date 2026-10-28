@@ -453,13 +453,12 @@ def run_pipeline():
 
 
 # ---------- Asistente Gemini (google-genai) ----------
+import requests  # Asegúrate de tener este import arriba
+
+# ---------- Asistente Gemini (Llamada REST directa) ----------
 def render_assistant(model, df, shock):
     st.subheader("🤖 Asistente LuzEspacial")
     st.caption("Pregunta sobre el modelo, los resultados o la interpretación de los mapas.")
-
-    if not GEMINI_AVAILABLE:
-        st.warning("Falta `google-genai` en el entorno. Revisa tu requirements.txt.")
-        return
 
     api_key = None
     try:
@@ -474,18 +473,6 @@ def render_assistant(model, df, shock):
             "🔑 Configura `GEMINI_API_KEY` en **Settings → Secrets** de Streamlit Cloud "
             "para activar el asistente."
         )
-        return
-
-       # Inicializar el nuevo cliente de Google
-    try:
-        # Forzamos explícitamente el servidor de AI Studio (gratuito) 
-        # para que acepte las nuevas claves "AQ." sin redirigir a Vertex AI.
-        client = genai.Client(
-            api_key=api_key,
-            http_options={'base_url': 'https://generativelanguage.googleapis.com'}
-        )
-    except Exception as e:
-        st.error("Hubo un problema al inicializar la IA. Revisa tu API Key.")
         return
 
     depts = model.depts
@@ -519,24 +506,35 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
             placeholder = st.empty()
             full_response = ""
             try:
-                # Usar la nueva API compatible con claves "AQ."
-                response = client.models.generate_content_stream(
-                    model="gemini-2.5-flash",
-                    contents=f"{system_prompt}\n\nPregunta del usuario: {prompt}",
-                )
-                for chunk in response:
-                    if chunk.text:
-                        full_response += chunk.text
-                        placeholder.markdown(full_response + "▌")
+                # Usamos la API REST nativa (v1beta) que SÍ acepta las claves AQ.
+                url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+                headers = {
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key
+                }
+                payload = {
+                    "contents": [{
+                        "parts": [{"text": f"{system_prompt}\n\nPregunta del usuario: {prompt}"}]
+                    }]
+                }
+                
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                response.raise_for_status() # Lanza error si la respuesta no es 200
+                
+                data = response.json()
+                full_response = data["candidates"][0]["content"]["parts"][0]["text"]
+                
                 placeholder.markdown(full_response)
-            except Exception:
-                # Ocultamos el error técnico de Python y mostramos un mensaje amigable
-                full_response = "⚠️ Lo siento, en este momento el asistente no puede responder. Por favor, verifica tu API Key o intenta de nuevo en unos minutos."
+
+            except requests.exceptions.RequestException as e:
+                # Capturamos el error de red/API y mostramos un mensaje amigable
+                full_response = "⚠️ El asistente no pudo conectarse. Verifica que tu clave API sea correcta y tenga el formato AQ. permitido."
                 placeholder.warning(full_response)
+            except Exception:
+                full_response = "⚠️ Ocurrió un error inesperado al procesar la respuesta."
+                placeholder.error(full_response)
 
         st.session_state.chat_history.append({"role": "assistant", "content": full_response})
-
-
 # ---------- UI principal ----------
 st.markdown(
     """
