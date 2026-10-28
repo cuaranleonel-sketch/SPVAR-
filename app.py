@@ -658,6 +658,7 @@ with tab2:
     st.subheader(f"SpIRF · Shock en {shock}")
     st.plotly_chart(fig, use_container_width=True)
 
+
 # --- Tab 3: Crecimiento y radiancia individuales ---
 with tab3:
     st.subheader("Crecimiento de luces y radiancia")
@@ -672,4 +673,9 @@ with tab3:
     html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
     components.html(html_r2, height=h, scrolling=False)
 
-# --- Tab
+# --- Tab 4: Asistente ---
+with tab4:
+    render_assistant(model, df, shock)
+
+st.markdown("---")
+st.caption("LuzEspacial · Spatial VAR · DANE (ITAED) + NOAA VIIRS")
