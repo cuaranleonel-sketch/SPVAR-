@@ -24,7 +24,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-
+st.set_option('client.showErrorDetails', False)
 try:
     import gdown
 except ImportError:
@@ -505,7 +505,7 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
             placeholder = st.empty()
             full_response = ""
             try:
-                model_g = genai.GenerativeModel("gemini-2.5-flash")
+                model_g = genai.GenerativeModel("gemini-3.8-flash")
                 history = [
                     {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                     for m in st.session_state.chat_history[:-1]
