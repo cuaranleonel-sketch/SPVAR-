@@ -1,8 +1,8 @@
 # =============================================================================
-# LuzEspacial – SpVAR Colombia (Streamlit) v2
-# - Mapa con encuadre a Colombia completa (fit_bounds)
-# - Pestaña "Impacto multi-mapa" con varios coropléticos en una vista
-# - Asistente virtual con Gemini (opcional vía st.secrets)
+# LuzEspacial – SpVAR Colombia (Streamlit) v3
+# - Mapa con encuadre a Colombia completa y barra de calor
+# - Pestaña de mapas con selector individual (uno a la vez)
+# - Asistente virtual con Gemini
 # =============================================================================
 import os
 import io
@@ -18,6 +18,7 @@ import statsmodels.api as sm
 from libpysal.weights import KNN, Queen, lag_spatial
 import folium
 from folium.features import GeoJsonTooltip
+import branca.colormap as cm
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
@@ -300,53 +301,15 @@ def spirf(sp, shock="nl_growth", idx=0, H=12):
 
 # ---------- Mapas ----------
 def folium_html(m, height=600):
-    """Renderiza el mapa HTML en memoria (sin tempfiles)."""
     return m.get_root().render(), height
 
 
-def add_colorbar(m, vmin, vmax, palette, alias):
-    """Añade una leyenda de colores (colorbar) en la esquina inferior derecha."""
-    import branca.colormap as cm
-    # Crear el mapa de colores
-    colormap = cm.LinearColormap(
-        colors=palette,
-        vmin=vmin,
-        vmax=vmax,
-        caption=alias
-    )
-    # Estilo para que se vea bien en el tema oscuro
-    colormap.add_to(m)
-    # Posicionarlo manualmente
-    m.get_root().html.add_child(folium.Element(
-        """
-        <style>
-        .legend.leaflet-control {
-            background-color: rgba(15, 22, 35, 0.85) !important;
-            color: #e2e8f0 !important;
-            border: 1px solid #1e293b !important;
-            border-radius: 8px !important;
-            padding: 8px !important;
-        }
-        .legend.leaflet-control div {
-            color: #e2e8f0 !important;
-        }
-        </style>
-        """
-    ))
-
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
-    """
-    Mapa coroplético mejorado: sin API Key, con barra de calor y encuadre exacto.
-    """
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
 
-    # Usamos OpenStreetMap (seguro y sin API key) o un tema oscuro base
-    m = folium.Map(
-        tiles="CartoDB dark_matter", 
-        zoom_control=True, 
-        control_scale=True
-    )
+    # Usamos una capa base que no pide API Key
+    m = folium.Map(tiles="CartoDB dark_matter", zoom_control=True, control_scale=True)
 
     vals = g[col_name].dropna()
     vmin = float(vals.min()) if len(vals) else 0.0
@@ -379,8 +342,8 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
         val = feat["properties"].get(col_name)
         return {
             "fillColor": value_to_color(val),
-            "color": "#1e293b", # Borde oscuro para que resalten los departamentos
-            "weight": 1.0,
+            "color": "#1e293b",
+            "weight": 0.8,
             "fillOpacity": 0.85,
         }
 
@@ -398,56 +361,27 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
             icon=folium.Icon(color="red", icon="info-sign"),
         ).add_to(m)
 
-    # 🎯 Encuadre exacto para Colombia
+    # Encuadre a Colombia completa
     bounds = g.total_bounds
     m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    # 🎨 Añadir barra de calor
-    add_colorbar(m, vmin, vmax, palette, alias)
-
-    return folium_html(m, height=600)
-    def value_to_color(val):
-        if val is None or (isinstance(val, float) and np.isnan(val)):
-            return "#333333"
-        t = 0.5 if vmax == vmin else (float(val) - vmin) / (vmax - vmin)
-        t = max(0.0, min(1.0, t))
-        n = len(palette) - 1
-        i = min(int(t * n), n - 1)
-        f = (t * n) - i
-        c1, c2 = palette[i].lstrip("#"), palette[i + 1].lstrip("#")
-        r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
-        r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
-        r = int(r1 + (r2 - r1) * f)
-        gg = int(g1 + (g2 - g1) * f)
-        b = int(b1 + (b2 - b1) * f)
-        return f"#{r:02x}{gg:02x}{b:02x}"
-
-    def style(feat):
-        val = feat["properties"].get(col_name)
-        return {
-            "fillColor": value_to_color(val),
-            "color": "#22d3ee",
-            "weight": 1.2,
-            "fillOpacity": 0.9,
+    # Añadir barra de calor
+    colormap = cm.LinearColormap(colors=palette, vmin=vmin, vmax=vmax, caption=alias)
+    colormap.add_to(m)
+    m.get_root().html.add_child(folium.Element(
+        """
+        <style>
+        .legend.leaflet-control {
+            background-color: rgba(15, 22, 35, 0.9) !important;
+            color: #e2e8f0 !important;
+            border: 1px solid #1e293b !important;
+            border-radius: 8px !important;
+            padding: 8px !important;
         }
-
-    folium.GeoJson(
-        g.__geo_interface__,
-        style_function=style,
-        tooltip=GeoJsonTooltip(fields=["departamento", col_name], aliases=["Departamento", alias]),
-    ).add_to(m)
-
-    if center_dept and center_dept in set(g["departamento"]):
-        cent = g.loc[g["departamento"] == center_dept, "geometry"].centroid.iloc[0]
-        folium.Marker(
-            [cent.y, cent.x],
-            popup=f"Shock: {center_dept}",
-            icon=folium.Icon(color="red", icon="info-sign"),
-        ).add_to(m)
-
-    # Encuadre a Colombia completa (4326)
-    bounds = g.total_bounds  # [xmin, ymin, xmax, ymax]
-    m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        .legend.leaflet-control div { color: #e2e8f0 !important; }
+        </style>
+        """
+    ))
 
     return folium_html(m, height=600)
 
@@ -646,28 +580,60 @@ rad = df.groupby("departamento")["nl_radiance"].mean().to_dict()
 # Tabs
 tab0, tab1, tab2, tab3, tab4 = st.tabs([
     "🛰️ Luces satelitales",
-    "🗺️ Impacto multi-mapa",
+    "🗺️ Mapas de Impacto",
     "📈 SpIRF",
     "🌡️ Crecimiento y radiancia",
     "🤖 Asistente",
 ])
 
-# --- Tab 0 ---
+# --- Tab 0: Imagen satelital ---
 with tab0:
     st.subheader("Luces nocturnas satelitales (VIIRS 2021)")
     if os.path.exists(LUCES_PNG):
-        st.image(LUCES_PNG, width="stretch")
-        st.image(LUCES_PNG, use_column_width=True, caption="Composite anual VIIRS 2021 · NOAA / Earth Engine")
+        st.image(LUCES_PNG, use_column_width=True)
         st.caption("Composite anual VIIRS 2021 · NOAA / Earth Engine")
     else:
         st.warning(f"No se encontró **{LUCES_PNG}** en el repositorio.")
         st.info("Las pestañas de mapas sí usan datos VIIRS reales del CSV.")
 
-# --- Tab 1: multi-mapa ---
-        # Mapa solo con el marcador del shock para orientación
+# --- Tab 1: Mapas individuales ---
+with tab1:
+    st.subheader("Análisis Geográfico del Shock")
+    st.caption(f"Shock en **{shock}** · Horizonte {horizon} trimestres · Selecciona una métrica para visualizar en el mapa.")
+
+    mapa_opcion = st.radio(
+        "Selecciona la métrica a visualizar:",
+        ["Impacto Económico Acumulado", "Crecimiento Promedio de Luces", "Radiancia Promedio", "Ubicación del Shock"],
+        horizontal=True
+    )
+
+    st.markdown("---")
+
+    if mapa_opcion == "Impacto Económico Acumulado":
+        st.markdown('<div class="lz-card"><h4>Impacto acumulado en actividad económica</h4><p>Suma del SpIRF de eco_ind en el horizonte.</p></div>', unsafe_allow_html=True)
+        html_impact, h = build_choropleth(gdf, impact, "impacto", "RdYlGn", "Impacto eco", shock)
+        components.html(html_impact, height=h, scrolling=False)
+
+    elif mapa_opcion == "Crecimiento Promedio de Luces":
+        st.markdown('<div class="lz-card"><h4>Crecimiento promedio de luces</h4><p>Media de nl_growth por departamento en la muestra.</p></div>', unsafe_allow_html=True)
+        html_growth, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
+        components.html(html_growth, height=h, scrolling=False)
+
+    elif mapa_opcion == "Radiancia Promedio":
+        st.markdown('<div class="lz-card"><h4>Radiancia promedio</h4><p>Media de nl_radiance por departamento.</p></div>', unsafe_allow_html=True)
+        html_rad, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
+        components.html(html_rad, height=h, scrolling=False)
+
+    elif mapa_opcion == "Ubicación del Shock":
+        st.markdown('<div class="lz-card"><h4>Ubicación del shock</h4><p>Departamento que recibe el shock actualmente.</p></div>', unsafe_allow_html=True)
         g_shock = gdf[gdf["departamento"] == shock]
-        # Usamos un tema claro para que resalte el marcador, o "CartoDB positron" que no pide key
+        
         m_shock = folium.Map(tiles="CartoDB positron", zoom_control=True)
+        folium.GeoJson(
+            gdf.__geo_interface__,
+            style_function=lambda x: {'fillColor': 'transparent', 'color': '#22d3ee', 'weight': 1.5, 'fillOpacity': 0.1}
+        ).add_to(m_shock)
+        
         if not g_shock.empty:
             cent = g_shock.geometry.centroid.iloc[0]
             folium.Marker(
@@ -675,39 +641,31 @@ with tab0:
                 popup=f"Shock: {shock}",
                 icon=folium.Icon(color="red", icon="info-sign"),
             ).add_to(m_shock)
-        
-        # Añadir el contorno de Colombia para que se ubique espacialmente
-        folium.GeoJson(
-            gdf.__geo_interface__,
-            style_function=lambda x: {'fillColor': 'transparent', 'color': '#22d3ee', 'weight': 1.5}
-        ).add_to(m_shock)
-        
+            
         bounds = gdf.total_bounds
         m_shock.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
         html_shock, h = folium_html(m_shock, height=600)
         components.html(html_shock, height=h, scrolling=False)
 
+    st.markdown("---")
+    buf = io.StringIO()
+    pd.DataFrame(list(impact.items()), columns=["departamento", "impacto_eco"]).to_csv(buf, index=False)
+    st.download_button(
+        "⬇️ Descargar impacto por departamento (CSV)",
+        buf.getvalue(),
+        f"impacto_{shock}.csv",
+        "text/csv",
+    )
+
 # --- Tab 2: SpIRF ---
 with tab2:
     st.subheader(f"SpIRF · Shock en {shock}")
-    st.plotly_chart(fig, width="stretch")
+    st.plotly_chart(fig, use_container_width=True)
 
-# --- Tab 3: crecimiento y radiancia (individuales) ---
+# --- Tab 3: Crecimiento y radiancia individuales ---
 with tab3:
     st.subheader("Crecimiento de luces y radiancia")
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Crecimiento promedio de luces (%)**")
-        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
-        components.html(html_g2, height=h, scrolling=False)
-    with c2:
-        st.markdown("**Radiancia promedio**")
-        html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
-        components.html(html_r2, height=h, scrolling=False)
-
-# --- Tab 4: Asistente ---
-with tab4:
-    render_assistant(model, df, shock)
-
-st.markdown("---")
-st.caption("LuzEspacial · Spatial VAR · DANE (ITAED) + NOAA VIIRS")
+        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd",
