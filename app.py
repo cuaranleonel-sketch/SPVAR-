@@ -1,9 +1,10 @@
 # =============================================================================
-# LuzEspacial – SpVAR Colombia (Streamlit) v4
+# LuzEspacial – SpVAR Colombia (Streamlit) v5
 # - Mapas 100% gratuitos (OpenStreetMap)
 # - Barra de calor vertical (Colorbar)
 # - Layout vertical: un mapa por pestaña a lo ancho
-# - Encuadre forzado a Colombia completa
+# - Asistente con nueva librería google-genai (compatible con claves AQ.)
+# - Traceback de errores desactivado para una UI limpia
 # =============================================================================
 import os
 import io
@@ -24,26 +25,28 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-st.set_option('client.showErrorDetails', False)
+
 try:
     import gdown
 except ImportError:
     gdown = None
 
 try:
-    import google.generativeai as genai
+    from google import genai
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
-st.set_option('client.showErrorDetails', False)
 
-# ---------- Config ----------
+# ---------- Configuración Global ----------
 st.set_page_config(
     page_title="LuzEspacial",
     page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# 🧹 Desactivar el texto técnico de error al final de la app
+st.set_option('client.showErrorDetails', False)
 
 ITAED_FILE_ID = "1SYu1r-3MbUvmQ5WzoH_uKs5pCAzcEr0P"
 ITAED_PATH = "Resultados_ITAED.xlsx"
@@ -304,11 +307,12 @@ def spirf(sp, shock="nl_growth", idx=0, H=12):
 def folium_html(m, height=600):
     return m.get_root().render(), height
 
+
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
 
-    # 🎯 Usar OpenStreetMap (Gratis, sin API Key y funciona siempre)
+    # OpenStreetMap: Gratis, sin API Key y funciona siempre
     m = folium.Map(
         location=[4.5, -74.0], 
         zoom_start=5.5, 
@@ -330,7 +334,7 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
 
     def value_to_color(val):
         if val is None or (isinstance(val, float) and np.isnan(val)):
-            return "#1e293b" # Color para regiones sin datos
+            return "#1e293b"  # Color para regiones sin datos
         t = 0.5 if vmax == vmin else (float(val) - vmin) / (vmax - vmin)
         t = max(0.0, min(1.0, t))
         n = len(palette) - 1
@@ -346,10 +350,9 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
 
     def style(feat):
         val = feat["properties"].get(col_name)
-        # Si el valor es nulo, lo pintamos de gris oscuro (zona sin datos)
         return {
             "fillColor": value_to_color(val),
-            "color": "#334155", 
+            "color": "#334155",
             "weight": 1,
             "fillOpacity": 0.9 if pd.notna(val) else 0.3,
         }
@@ -368,15 +371,16 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
             icon=folium.Icon(color="red", icon="info-sign"),
         ).add_to(m)
 
-    # 🎯 Encuadre a Colombia completa
+    # Encuadre a Colombia completa
     bounds = g.total_bounds
     m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    # 🎨 Añadir barra de calor VERTICAL
+    # Barra de calor VERTICAL
     colormap = cm.LinearColormap(colors=palette, vmin=vmin, vmax=vmax, caption=alias)
     m.add_child(colormap)
 
     return folium_html(m, height=650)
+
 
 def make_spirf_fig(model, shock_dept, H):
     depts = model.depts
@@ -448,13 +452,13 @@ def run_pipeline():
     return model, gdf, df
 
 
-# ---------- Asistente Gemini ----------
+# ---------- Asistente Gemini (google-genai) ----------
 def render_assistant(model, df, shock):
     st.subheader("🤖 Asistente LuzEspacial")
     st.caption("Pregunta sobre el modelo, los resultados o la interpretación de los mapas.")
 
     if not GEMINI_AVAILABLE:
-        st.warning("Falta `google-generativeai` en el entorno. Instálalo para usar el asistente.")
+        st.warning("Falta `google-genai` en el entorno. Revisa tu requirements.txt.")
         return
 
     api_key = None
@@ -468,11 +472,16 @@ def render_assistant(model, df, shock):
     if not api_key:
         st.info(
             "🔑 Configura `GEMINI_API_KEY` en **Settings → Secrets** de Streamlit Cloud "
-            "para activar el asistente. Obtén una gratis en Google AI Studio."
+            "para activar el asistente."
         )
         return
 
-    genai.configure(api_key=api_key)
+    # Inicializar el nuevo cliente de Google
+    try:
+        client = genai.Client(api_key=api_key)
+    except Exception as e:
+        st.error("Hubo un problema al inicializar la IA. Revisa tu API Key.")
+        return
 
     depts = model.depts
     system_prompt = f"""Eres un asistente experto en econometría espacial que ayuda a interpretar
@@ -505,24 +514,20 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
             placeholder = st.empty()
             full_response = ""
             try:
-                model_g = genai.GenerativeModel("gemini-3.8-flash")
-                history = [
-                    {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
-                    for m in st.session_state.chat_history[:-1]
-                ]
-                chat = model_g.start_chat(history=history)
-                response = chat.send_message(
-                    f"{system_prompt}\n\nPregunta del usuario: {prompt}",
-                    stream=True,
+                # Usar la nueva API compatible con claves "AQ."
+                response = client.models.generate_content_stream(
+                    model="gemini-2.5-flash",
+                    contents=f"{system_prompt}\n\nPregunta del usuario: {prompt}",
                 )
                 for chunk in response:
                     if chunk.text:
                         full_response += chunk.text
                         placeholder.markdown(full_response + "▌")
                 placeholder.markdown(full_response)
-            except Exception as e:
-                full_response = f"⚠️ Error al consultar Gemini: {e}"
-                placeholder.error(full_response)
+            except Exception:
+                # Ocultamos el error técnico de Python y mostramos un mensaje amigable
+                full_response = "⚠️ Lo siento, en este momento el asistente no puede responder. Por favor, verifica tu API Key o intenta de nuevo en unos minutos."
+                placeholder.warning(full_response)
 
         st.session_state.chat_history.append({"role": "assistant", "content": full_response})
 
@@ -542,8 +547,7 @@ st.markdown(
 try:
     model, gdf, df = run_pipeline()
 except Exception as e:
-    st.error(f"Error al cargar el modelo: {e}")
-    st.code(traceback.format_exc())
+    st.error(f"Error al cargar los datos. Intenta recargar la página.")
     st.stop()
 
 # Sidebar
@@ -658,7 +662,6 @@ with tab2:
 with tab3:
     st.subheader("Crecimiento de luces y radiancia")
     
-    # En lugar de columnas, uno debajo del otro (Layout vertical)
     st.markdown("### Crecimiento promedio de luces (%)")
     html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
     components.html(html_g2, height=h, scrolling=False)
@@ -669,8 +672,4 @@ with tab3:
     html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
     components.html(html_r2, height=h, scrolling=False)
 
-# --- Tab 4: Asistente ---
-with tab4:
-    render_assistant(model, df, shock)
-
-st.markdown
+# --- Tab
