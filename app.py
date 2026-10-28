@@ -476,9 +476,14 @@ def render_assistant(model, df, shock):
         )
         return
 
-    # Inicializar el nuevo cliente de Google
+       # Inicializar el nuevo cliente de Google
     try:
-        client = genai.Client(api_key=api_key)
+        # Forzamos explícitamente el servidor de AI Studio (gratuito) 
+        # para que acepte las nuevas claves "AQ." sin redirigir a Vertex AI.
+        client = genai.Client(
+            api_key=api_key,
+            http_options={'base_url': 'https://generativelanguage.googleapis.com'}
+        )
     except Exception as e:
         st.error("Hubo un problema al inicializar la IA. Revisa tu API Key.")
         return
