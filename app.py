@@ -1,5 +1,8 @@
 # =============================================================================
-# LuzEspacial – SpVAR Colombia (Streamlit) 
+# LuzEspacial – SpVAR Colombia (Streamlit) v2
+# - Mapa con encuadre a Colombia completa (fit_bounds)
+# - Pestaña "Impacto multi-mapa" con varios coropléticos en una vista
+# - Asistente virtual con Gemini (opcional vía st.secrets)
 # =============================================================================
 import os
 import io
@@ -45,7 +48,7 @@ VIIRS_CSV = "viirs_departamental.csv"
 LUCES_PNG = "luces_colombia_2021.png"
 LAGS = 2
 
-# ---------- Estilos mejorados ----------
+# ---------- Estilos ----------
 st.markdown(
     """
 <style>
@@ -263,7 +266,6 @@ class SpVAR:
 
 
 def spirf(sp, shock="nl_growth", idx=0, H=12):
-    """SpIRF simple: propaga el shock usando los coeficientes agrupados."""
     K, N, p = len(sp.endog), sp.N, sp.lags
     A = []
     for ell in range(1, p + 1):
@@ -297,20 +299,19 @@ def spirf(sp, shock="nl_growth", idx=0, H=12):
 
 
 # ---------- Mapas ----------
-def folium_html(m, height=560):
-    """Renderiza el mapa HTML en memoria, sin archivos temporales."""
+def folium_html(m, height=600):
+    """Renderiza el mapa HTML en memoria (sin tempfiles)."""
     return m.get_root().render(), height
 
 
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
     """
     Mapa coroplético con encuadre automático a Colombia completa.
-    `gdf` debe estar en EPSG:4326 para que fit_bounds funcione.
+    gdf debe estar en EPSG:4326 para fit_bounds.
     """
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
 
-    # Mapa vacío; el encuadre se ajusta con fit_bounds al final
     m = folium.Map(tiles="CartoDB dark_matter", zoom_control=True)
 
     vals = g[col_name].dropna()
@@ -355,7 +356,6 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
         tooltip=GeoJsonTooltip(fields=["departamento", col_name], aliases=["Departamento", alias]),
     ).add_to(m)
 
-    # Centroide del shock (en 4326 para el marcador)
     if center_dept and center_dept in set(g["departamento"]):
         cent = g.loc[g["departamento"] == center_dept, "geometry"].centroid.iloc[0]
         folium.Marker(
@@ -364,8 +364,8 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
             icon=folium.Icon(color="red", icon="info-sign"),
         ).add_to(m)
 
-    # 🔑 Encuadre a Colombia completa usando bounds del GeoDataFrame en 4326
-    bounds = g.total_bounds  # [xmin, ymin, xmax, ymax] en 4326
+    # Encuadre a Colombia completa (4326)
+    bounds = g.total_bounds  # [xmin, ymin, xmax, ymax]
     m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
     return folium_html(m, height=600)
@@ -443,7 +443,6 @@ def run_pipeline():
 
 # ---------- Asistente Gemini ----------
 def render_assistant(model, df, shock):
-    """Chat simple con Gemini usando st.secrets para la API key."""
     st.subheader("🤖 Asistente LuzEspacial")
     st.caption("Pregunta sobre el modelo, los resultados o la interpretación de los mapas.")
 
@@ -451,7 +450,6 @@ def render_assistant(model, df, shock):
         st.warning("Falta `google-generativeai` en el entorno. Instálalo para usar el asistente.")
         return
 
-    # Cargar API key desde secrets (Streamlit Cloud) o variable de entorno
     api_key = None
     try:
         api_key = st.secrets.get("GEMINI_API_KEY")
@@ -469,39 +467,28 @@ def render_assistant(model, df, shock):
 
     genai.configure(api_key=api_key)
 
-    # Contexto del modelo para el prompt de sistema
     depts = model.depts
-    maxeig = model.maxeig
-    n_depts = model.N
-    fecha_min = df["fecha"].min().strftime("%Y-%m")
-    fecha_max = df["fecha"].max().strftime("%Y-%m")
-
     system_prompt = f"""Eres un asistente experto en econometría espacial que ayuda a interpretar
 los resultados de la aplicación LuzEspacial (SpVAR aplicado a Colombia).
 
 Contexto del modelo actual:
-- Es un Spatial VAR (SpVAR) con {n_depts} departamentos de Colombia.
-- Variables endógenas: crecimiento de luces nocturnas VIIRS (nl_growth) y actividad económica DANE (eco_ind).
+- Spatial VAR (SpVAR) con {model.N} departamentos de Colombia.
+- Variables endógenas: nl_growth (crecimiento de luces VIIRS) y eco_ind (DANE ITAED).
 - Rezagos: {model.lags} trimestres.
-- Raíz característica máxima: {maxeig:.3f} (si es ≥ 1, el VAR no es estacionario).
-- Período de datos: {fecha_min} a {fecha_max}.
-- Shock actual seleccionado: {shock}.
-- Departamentos incluidos: {', '.join(depts[:10])}{'...' if len(depts) > 10 else ''}.
+- Raíz característica máxima: {model.maxeig:.3f} (si es >= 1, el VAR no es estacionario).
+- Período de datos: {df['fecha'].min():%Y-%m} a {df['fecha'].max():%Y-%m}.
+- Shock actual: {shock}.
+- Departamentos: {', '.join(depts[:12])}{'...' if len(depts) > 12 else ''}.
 
-Responde en español, de forma clara y concisa. Si te preguntan algo que no sabes o que
-requiere datos que no tienes, dilo honestamente. No inventes cifras específicas que no
-estén en el contexto."""
+Responde en español, claro y conciso. Si te falta información, dilo honestamente."""
 
-    # Historial de chat en sesión
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Mostrar historial
     for msg in st.session_state.chat_history:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Input del usuario
     if prompt := st.chat_input("Pregunta sobre el modelo…"):
         st.session_state.chat_history.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
@@ -512,7 +499,6 @@ estén en el contexto."""
             full_response = ""
             try:
                 model_g = genai.GenerativeModel("gemini-1.5-flash")
-                # Construir conversación con contexto
                 history = [
                     {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                     for m in st.session_state.chat_history[:-1]
@@ -570,7 +556,7 @@ with st.sidebar:
     st.caption("Spatial VAR (no Panel VAR)")
     st.caption("Fuentes: DANE ITAED + NOAA VIIRS")
 
-# Calcular IRF e impacto
+# Cálculos
 fig, irf = make_spirf_fig(model, shock, horizon)
 impact = {model.depts[i]: float(irf["eco_ind"][:, i].sum()) for i in range(model.N)}
 growth = df.groupby("departamento")["nl_growth"].mean().to_dict()
@@ -585,7 +571,7 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
     "🤖 Asistente",
 ])
 
-# Tab 0: imagen satelital
+# --- Tab 0 ---
 with tab0:
     st.subheader("Luces nocturnas satelitales (VIIRS 2021)")
     if os.path.exists(LUCES_PNG):
@@ -595,19 +581,30 @@ with tab0:
         st.warning(f"No se encontró **{LUCES_PNG}** en el repositorio.")
         st.info("Las pestañas de mapas sí usan datos VIIRS reales del CSV.")
 
-# Tab 1: 🔑 Multi-mapa en una sola pestaña
+# --- Tab 1: multi-mapa ---
 with tab1:
     st.subheader("Impacto del shock en los departamentos")
-    st.caption(f"Shock en **{shock}** · Horizonte {horizon} trimestres · Cada mapa muestra una métrica distinta")
+    st.caption(
+        f"Shock en **{shock}** · Horizonte {horizon} trimestres · "
+        "Cuatro mapas de Colombia con métricas complementarias."
+    )
 
     col_a, col_b = st.columns(2)
     with col_a:
-        st.markdown('<div class="lz-card"><h4>Impacto acumulado en actividad económica</h4><p>Suma del SpIRF de eco_ind en el horizonte.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="lz-card"><h4>Impacto acumulado en actividad económica</h4>'
+            '<p>Suma del SpIRF de eco_ind en el horizonte.</p></div>',
+            unsafe_allow_html=True,
+        )
         html_impact, h = build_choropleth(gdf, impact, "impacto", "RdYlGn", "Impacto eco", shock)
         components.html(html_impact, height=h, scrolling=False)
 
     with col_b:
-        st.markdown('<div class="lz-card"><h4>Crecimiento promedio de luces</h4><p>Media de nl_growth por departamento en la muestra.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="lz-card"><h4>Crecimiento promedio de luces</h4>'
+            '<p>Media de nl_growth por departamento en la muestra.</p></div>',
+            unsafe_allow_html=True,
+        )
         html_growth, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
         components.html(html_growth, height=h, scrolling=False)
 
@@ -615,13 +612,20 @@ with tab1:
 
     col_c, col_d = st.columns(2)
     with col_c:
-        st.markdown('<div class="lz-card"><h4>Radiancia promedio</h4><p>Media de nl_radiance por departamento.</p></div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="lz-card"><h4>Radiancia promedio</h4>'
+            '<p>Media de nl_radiance por departamento.</p></div>',
+            unsafe_allow_html=True,
+        )
         html_rad, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
         components.html(html_rad, height=h, scrolling=False)
 
     with col_d:
-        st.markdown('<div class="lz-card"><h4>Mapa del shock</h4><p>Ubicación del departamento que recibe el shock.</p></div>', unsafe_allow_html=True)
-        # Mapa solo con el marcador del shock para orientación
+        st.markdown(
+            '<div class="lz-card"><h4>Ubicación del shock</h4>'
+            f'<p>Departamento que recibe el shock: {shock}.</p></div>',
+            unsafe_allow_html=True,
+        )
         g_shock = gdf[gdf["departamento"] == shock]
         m_shock = folium.Map(tiles="CartoDB dark_matter")
         if not g_shock.empty:
@@ -631,14 +635,15 @@ with tab1:
                 popup=f"Shock: {shock}",
                 icon=folium.Icon(color="red", icon="info-sign"),
             ).add_to(m_shock)
-            bounds = gdf.total_bounds
-            m_shock.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        bounds = gdf.total_bounds
+        m_shock.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
         html_shock, h = folium_html(m_shock, height=600)
         components.html(html_shock, height=h, scrolling=False)
 
-    # Descarga del impacto
     buf = io.StringIO()
-    pd.DataFrame(list(impact.items()), columns=["departamento", "impacto_eco"]).to_csv(buf, index=False)
+    pd.DataFrame(
+        list(impact.items()), columns=["departamento", "impacto_eco"]
+    ).to_csv(buf, index=False)
     st.download_button(
         "⬇️ Descargar impacto por departamento (CSV)",
         buf.getvalue(),
@@ -646,14 +651,27 @@ with tab1:
         "text/csv",
     )
 
-# Tab 2: SpIRF
+# --- Tab 2: SpIRF ---
 with tab2:
     st.subheader(f"SpIRF · Shock en {shock}")
     st.plotly_chart(fig, width="stretch")
 
-# Tab 3: Crecimiento y radiancia (mapas individuales)
+# --- Tab 3: crecimiento y radiancia (individuales) ---
 with tab3:
     st.subheader("Crecimiento de luces y radiancia")
     c1, c2 = st.columns(2)
     with c1:
-        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "C
+        st.markdown("**Crecimiento promedio de luces (%)**")
+        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
+        components.html(html_g2, height=h, scrolling=False)
+    with c2:
+        st.markdown("**Radiancia promedio**")
+        html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
+        components.html(html_r2, height=h, scrolling=False)
+
+# --- Tab 4: Asistente ---
+with tab4:
+    render_assistant(model, df, shock)
+
+st.markdown("---")
+st.caption("LuzEspacial · Spatial VAR · DANE (ITAED) + NOAA VIIRS")
