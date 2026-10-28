@@ -1,8 +1,9 @@
 # =============================================================================
-# LuzEspacial – SpVAR Colombia (Streamlit) v3
-# - Mapa con encuadre a Colombia completa y barra de calor
-# - Pestaña de mapas con selector individual (uno a la vez)
-# - Asistente virtual con Gemini
+# LuzEspacial – SpVAR Colombia (Streamlit) v4
+# - Mapas 100% gratuitos (OpenStreetMap)
+# - Barra de calor vertical (Colorbar)
+# - Layout vertical: un mapa por pestaña a lo ancho
+# - Encuadre forzado a Colombia completa
 # =============================================================================
 import os
 import io
@@ -87,7 +88,6 @@ div[data-testid="stSidebar"] { background: #0f1623; border-right: 1px solid #1e2
 }
 .lz-card h4 { margin: 0 0 0.4rem 0; font-size: 0.95rem; color: #67e8f9 !important; }
 .lz-card p { margin: 0; font-size: 0.85rem; color: #94a3b8 !important; }
-div[data-testid="stMetricValue"] { color: #22d3ee !important; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -303,13 +303,18 @@ def spirf(sp, shock="nl_growth", idx=0, H=12):
 def folium_html(m, height=600):
     return m.get_root().render(), height
 
-
 def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=None):
     g = gdf.copy()
     g[col_name] = g["departamento"].map(values_dict)
 
-    # Usamos una capa base que no pide API Key
-    m = folium.Map(tiles="CartoDB dark_matter", zoom_control=True, control_scale=True)
+    # 🎯 Usar OpenStreetMap (Gratis, sin API Key y funciona siempre)
+    m = folium.Map(
+        location=[4.5, -74.0], 
+        zoom_start=5.5, 
+        tiles="OpenStreetMap", 
+        zoom_control=True,
+        control_scale=True
+    )
 
     vals = g[col_name].dropna()
     vmin = float(vals.min()) if len(vals) else 0.0
@@ -324,7 +329,7 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
 
     def value_to_color(val):
         if val is None or (isinstance(val, float) and np.isnan(val)):
-            return "#333333"
+            return "#1e293b" # Color para regiones sin datos
         t = 0.5 if vmax == vmin else (float(val) - vmin) / (vmax - vmin)
         t = max(0.0, min(1.0, t))
         n = len(palette) - 1
@@ -340,11 +345,12 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
 
     def style(feat):
         val = feat["properties"].get(col_name)
+        # Si el valor es nulo, lo pintamos de gris oscuro (zona sin datos)
         return {
             "fillColor": value_to_color(val),
-            "color": "#1e293b",
-            "weight": 0.8,
-            "fillOpacity": 0.85,
+            "color": "#334155", 
+            "weight": 1,
+            "fillOpacity": 0.9 if pd.notna(val) else 0.3,
         }
 
     folium.GeoJson(
@@ -361,30 +367,15 @@ def build_choropleth(gdf, values_dict, col_name, cmap_name, alias, center_dept=N
             icon=folium.Icon(color="red", icon="info-sign"),
         ).add_to(m)
 
-    # Encuadre a Colombia completa
+    # 🎯 Encuadre a Colombia completa
     bounds = g.total_bounds
     m.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
-    # Añadir barra de calor
+    # 🎨 Añadir barra de calor VERTICAL
     colormap = cm.LinearColormap(colors=palette, vmin=vmin, vmax=vmax, caption=alias)
-    colormap.add_to(m)
-    m.get_root().html.add_child(folium.Element(
-        """
-        <style>
-        .legend.leaflet-control {
-            background-color: rgba(15, 22, 35, 0.9) !important;
-            color: #e2e8f0 !important;
-            border: 1px solid #1e293b !important;
-            border-radius: 8px !important;
-            padding: 8px !important;
-        }
-        .legend.leaflet-control div { color: #e2e8f0 !important; }
-        </style>
-        """
-    ))
+    m.add_child(colormap)
 
-    return folium_html(m, height=600)
-
+    return folium_html(m, height=650)
 
 def make_spirf_fig(model, shock_dept, H):
     depts = model.depts
@@ -628,7 +619,7 @@ with tab1:
         st.markdown('<div class="lz-card"><h4>Ubicación del shock</h4><p>Departamento que recibe el shock actualmente.</p></div>', unsafe_allow_html=True)
         g_shock = gdf[gdf["departamento"] == shock]
         
-        m_shock = folium.Map(tiles="CartoDB positron", zoom_control=True)
+        m_shock = folium.Map(location=[4.5, -74.0], zoom_start=5.5, tiles="OpenStreetMap")
         folium.GeoJson(
             gdf.__geo_interface__,
             style_function=lambda x: {'fillColor': 'transparent', 'color': '#22d3ee', 'weight': 1.5, 'fillOpacity': 0.1}
@@ -644,7 +635,7 @@ with tab1:
             
         bounds = gdf.total_bounds
         m_shock.fit_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
-        html_shock, h = folium_html(m_shock, height=600)
+        html_shock, h = folium_html(m_shock, height=650)
         components.html(html_shock, height=h, scrolling=False)
 
     st.markdown("---")
@@ -665,19 +656,20 @@ with tab2:
 # --- Tab 3: Crecimiento y radiancia individuales ---
 with tab3:
     st.subheader("Crecimiento de luces y radiancia")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("**Crecimiento promedio de luces (%)**")
-        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
-        components.html(html_g2, height=h, scrolling=False)
-    with c2:
-        st.markdown("**Radiancia promedio**")
-        html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
-        components.html(html_r2, height=h, scrolling=False)
+    
+    # En lugar de columnas, uno debajo del otro (Layout vertical)
+    st.markdown("### Crecimiento promedio de luces (%)")
+    html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
+    components.html(html_g2, height=h, scrolling=False)
+    
+    st.markdown("---")
+    
+    st.markdown("### Radiancia promedio")
+    html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
+    components.html(html_r2, height=h, scrolling=False)
 
 # --- Tab 4: Asistente ---
 with tab4:
     render_assistant(model, df, shock)
 
-st.markdown("---")
-st.caption("LuzEspacial · Spatial VAR · DANE (ITAED) + NOAA VIIRS")
+st.markdown
