@@ -35,6 +35,7 @@ try:
     GEMINI_AVAILABLE = True
 except ImportError:
     GEMINI_AVAILABLE = False
+st.set_option('client.showErrorDetails', False)
 
 # ---------- Config ----------
 st.set_page_config(
@@ -504,7 +505,7 @@ Responde en español, claro y conciso. Si te falta información, dilo honestamen
             placeholder = st.empty()
             full_response = ""
             try:
-                model_g = genai.GenerativeModel("gemini-1.5-flash")
+                model_g = genai.GenerativeModel("gemini-2.5-flash")
                 history = [
                     {"role": "user" if m["role"] == "user" else "model", "parts": [m["content"]]}
                     for m in st.session_state.chat_history[:-1]
