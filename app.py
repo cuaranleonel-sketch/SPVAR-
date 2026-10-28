@@ -590,7 +590,7 @@ tab0, tab1, tab2, tab3, tab4 = st.tabs([
 with tab0:
     st.subheader("Luces nocturnas satelitales (VIIRS 2021)")
     if os.path.exists(LUCES_PNG):
-        st.image(LUCES_PNG, use_column_width=True)
+        st.image(LUCES_PNG, use_container_width=True)
         st.caption("Composite anual VIIRS 2021 · NOAA / Earth Engine")
     else:
         st.warning(f"No se encontró **{LUCES_PNG}** en el repositorio.")
@@ -668,4 +668,16 @@ with tab3:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Crecimiento promedio de luces (%)**")
-        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd",
+        html_g2, h = build_choropleth(gdf, growth, "nl_growth", "YlOrRd", "Crec. luces %")
+        components.html(html_g2, height=h, scrolling=False)
+    with c2:
+        st.markdown("**Radiancia promedio**")
+        html_r2, h = build_choropleth(gdf, rad, "nl_radiance", "inferno", "Radiancia")
+        components.html(html_r2, height=h, scrolling=False)
+
+# --- Tab 4: Asistente ---
+with tab4:
+    render_assistant(model, df, shock)
+
+st.markdown("---")
+st.caption("LuzEspacial · Spatial VAR · DANE (ITAED) + NOAA VIIRS")
